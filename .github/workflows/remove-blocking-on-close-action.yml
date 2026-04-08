@@ -1,0 +1,207 @@
+name: Remove Blocking Relationships On Issue Close (Action)
+
+# Internal implementation workflow.
+# This file is called by remove-blocking-on-close.yml.
+#
+# Token guidance:
+# - A PAT is mandatory.
+# - Required scopes: read:project, project, repo.
+
+on:
+  workflow_call:
+    inputs:
+      issue-number:
+        description: Closed issue number in the caller repository.
+        required: true
+        type: number
+      repo:
+        description: Full repository name in owner/repo format.
+        required: true
+        type: string
+    secrets:
+      AC_AUTOMATION_PAT:
+        description: Required org PAT for GraphQL dependency operations.
+        required: true
+
+jobs:
+  remove-blocking-links:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      INPUT_ISSUE_NUMBER: ${{ inputs.issue-number }}
+      INPUT_REPO: ${{ inputs.repo }}
+      GH_TOKEN: ${{ secrets.AC_AUTOMATION_PAT }}
+    steps:
+      - name: Remove stale blocking relationships
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          owner="${INPUT_REPO%%/*}"
+          repo="${INPUT_REPO##*/}"
+          issue_number="${INPUT_ISSUE_NUMBER}"
+
+          if [[ -z "$owner" || -z "$repo" || -z "$issue_number" ]]; then
+            echo "Missing required inputs: repo and issue-number are required."
+            exit 1
+          fi
+
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "No token available for GitHub API calls."
+            exit 1
+          fi
+
+          run_graphql_with_retry() {
+            local query="$1"
+            local attempt=1
+            local max_attempts=5
+            local delay=1
+
+            while true; do
+              local output
+              if output=$(gh api graphql -f query="$query" 2>&1); then
+                printf '%s\n' "$output"
+                return 0
+              fi
+
+              if [[ "$output" =~ [Rr]ate[[:space:]-]?[Ll]imit ]] || [[ "$output" =~ [Ss]econdary[[:space:]]rate ]]; then
+                if (( attempt >= max_attempts )); then
+                  echo "$output"
+                  return 1
+                fi
+                echo "Rate-limited. Retrying in ${delay}s (attempt ${attempt}/${max_attempts})..." >&2
+                sleep "$delay"
+                attempt=$((attempt + 1))
+                delay=$((delay * 2))
+                continue
+              fi
+
+              echo "$output"
+              return 1
+            done
+          }
+
+          after_clause=""
+          closed_issue_id=""
+          blocked_issue_ids=()
+          blocked_issue_numbers=()
+
+          while true; do
+            query="query {
+              repository(owner: \"${owner}\", name: \"${repo}\") {
+                issue(number: ${issue_number}) {
+                  id
+                  blocking(first: 25${after_clause}) {
+                    nodes {
+                      id
+                      number
+                    }
+                    pageInfo {
+                      hasNextPage
+                      endCursor
+                    }
+                  }
+                }
+              }
+            }"
+
+            response=$(run_graphql_with_retry "$query") || {
+              echo "Failed to fetch blocking relationships."
+              exit 1
+            }
+
+            issue_data=$(printf '%s' "$response" | jq -e '.data.repository.issue') || {
+              echo "Issue not found for ${owner}/${repo}#${issue_number}."
+              exit 1
+            }
+
+            if [[ -z "$closed_issue_id" ]]; then
+              closed_issue_id=$(printf '%s' "$issue_data" | jq -r '.id // empty')
+              if [[ -z "$closed_issue_id" ]]; then
+                echo "Unable to resolve closed issue node id."
+                exit 1
+              fi
+            fi
+
+            while IFS=$'\t' read -r blocked_id blocked_number; do
+              [[ -z "${blocked_id}" ]] && continue
+              blocked_issue_ids+=("$blocked_id")
+              blocked_issue_numbers+=("$blocked_number")
+            done < <(printf '%s' "$issue_data" | jq -r '.blocking.nodes[]? | [.id, (.number|tostring)] | @tsv')
+
+            has_next=$(printf '%s' "$issue_data" | jq -r '.blocking.pageInfo.hasNextPage')
+            end_cursor=$(printf '%s' "$issue_data" | jq -r '.blocking.pageInfo.endCursor // empty')
+
+            if [[ "$has_next" != "true" || -z "$end_cursor" ]]; then
+              break
+            fi
+
+            after_clause=", after: \"${end_cursor}\""
+          done
+
+          if [[ ${#blocked_issue_ids[@]} -eq 0 ]]; then
+            {
+              echo "## Blocking relationship cleanup"
+              echo
+              echo "No blocking relationships found."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "No blocking relationships found."
+            exit 0
+          fi
+
+          removed_lines=()
+
+          for i in "${!blocked_issue_ids[@]}"; do
+            blocked_issue_id="${blocked_issue_ids[$i]}"
+            blocked_issue_number="${blocked_issue_numbers[$i]}"
+
+            mutation="mutation {
+              removeBlockedBy(input: {
+                issueId: \"${blocked_issue_id}\"
+                blockingIssueId: \"${closed_issue_id}\"
+              }) {
+                clientMutationId
+              }
+            }"
+
+            remove_output=""
+            remove_output=$(run_graphql_with_retry "$mutation") || {
+              if [[ "$remove_output" =~ [Nn]ot[[:space:]]blocked[[:space:]]by ]] || [[ "$remove_output" =~ [Aa]lready ]]; then
+                echo "Relationship already absent for #${issue_number} -> #${blocked_issue_number}; skipping."
+                continue
+              fi
+              echo "Failed removing relationship #${issue_number} -> #${blocked_issue_number}."
+              echo "$remove_output"
+              exit 1
+            }
+
+            if printf '%s' "$remove_output" | jq -e '.errors | length > 0' >/dev/null 2>&1; then
+              if printf '%s' "$remove_output" | jq -r '.errors[].message' | grep -Eiq 'not blocked by|already'; then
+                echo "Relationship already absent for #${issue_number} -> #${blocked_issue_number}; skipping."
+                continue
+              fi
+              echo "GraphQL error while removing relationship #${issue_number} -> #${blocked_issue_number}."
+              printf '%s\n' "$remove_output"
+              exit 1
+            fi
+
+            removed_lines+=("#${issue_number} unblocked #${blocked_issue_number}")
+          done
+
+          {
+            echo "## Blocking relationship cleanup"
+            echo
+            if [[ ${#removed_lines[@]} -eq 0 ]]; then
+              echo "No blocking relationships found."
+            else
+              printf '%s\n' "${removed_lines[@]}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ ${#removed_lines[@]} -eq 0 ]]; then
+            echo "No blocking relationships found."
+          else
+            printf '%s\n' "${removed_lines[@]}"
+          fi

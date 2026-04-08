@@ -1,0 +1,8 @@
+{
+  "name": "Auto remove blocking relationships",
+  "description": "Calls the org reusable workflow to remove blocking issue relationships when an issue is closed.",
+  "iconName": "octicon issue-opened",
+  "categories": [
+    "Automation"
+  ]
+}

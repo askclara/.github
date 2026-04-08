@@ -1,0 +1,6 @@
+# Ignore all change folders/files under openspec/changes
+openspec/changes/*
+
+# Keep archived changes tracked
+!openspec/changes/archive/
+!openspec/changes/archive/**

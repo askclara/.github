@@ -1,0 +1,18 @@
+name: Auto remove blocking relationships on issue close
+
+on:
+  issues:
+    types:
+      - closed
+
+jobs:
+  remove-blocking-links:
+    # Org-facing reusable entrypoint. This delegates internally to
+    # askclara/.github/.github/workflows/remove-blocking-on-close-action.yml.
+    uses: askclara/.github/.github/workflows/remove-blocking-on-close.yml@main
+    with:
+      issue-number: ${{ github.event.issue.number }}
+      repo: ${{ github.repository }}
+    # Required org PAT secret used by the reusable workflow.
+      secrets:
+        AC_AUTOMATION_PAT: ${{ secrets.AC_AUTOMATION_PAT }}

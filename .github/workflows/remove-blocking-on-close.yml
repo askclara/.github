@@ -1,0 +1,44 @@
+name: Remove Blocking Relationships On Issue Close
+
+# Org-facing reusable entrypoint.
+# The implementation lives in remove-blocking-on-close-action.yml.
+#
+# Usage from any repository in the organization:
+#
+# on:
+#   issues:
+#     types: [closed]
+#
+# jobs:
+#   remove-blocking-links:
+#     uses: askclara/.github/.github/workflows/remove-blocking-on-close.yml@main
+#     with:
+#       issue-number: ${{ github.event.issue.number }}
+#       repo: ${{ github.repository }}
+#     secrets:
+#       AC_AUTOMATION_PAT: ${{ secrets.AC_AUTOMATION_PAT }}
+
+on:
+  workflow_call:
+    inputs:
+      issue-number:
+        description: Closed issue number in the caller repository.
+        required: true
+        type: number
+      repo:
+        description: Full repository name in owner/repo format.
+        required: true
+        type: string
+    secrets:
+      AC_AUTOMATION_PAT:
+        description: Required org PAT (read:project + project + repo scopes).
+        required: true
+
+jobs:
+  remove-blocking-links:
+    uses: askclara/.github/.github/workflows/remove-blocking-on-close-action.yml@main
+    with:
+      issue-number: ${{ inputs.issue-number }}
+      repo: ${{ inputs.repo }}
+    secrets:
+      AC_AUTOMATION_PAT: ${{ secrets.AC_AUTOMATION_PAT }}
