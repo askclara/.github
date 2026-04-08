@@ -8,6 +8,7 @@ on:
 jobs:
   remove-blocking-links:
     permissions:
+      contents: read
       issues: write
     # Org-facing reusable entrypoint. This delegates internally to
     # askclara/.github/.github/workflows/remove-blocking-on-close-action.yml.
