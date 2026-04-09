@@ -6,6 +6,7 @@ Organization-level automation, prompts, and skills.
 
 - `.github/workflows/remove-blocking-on-close.yml`: org-facing reusable entrypoint (called by repos).
 - `.github/workflows/remove-blocking-on-close-action.yml`: internal implementation workflow called by the entrypoint.
+- `.github/workflows/auto-remove-blocking-on-close.yml`: automatic caller in this repo (triggers on issue close).
 
 ### Caller Example
 
