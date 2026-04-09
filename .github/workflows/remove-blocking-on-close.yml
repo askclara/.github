@@ -38,7 +38,7 @@ jobs:
   remove-blocking-links:
     uses: askclara/.github/.github/workflows/remove-blocking-on-close-action.yml@main
     with:
-      issue-number: ${{ inputs.issue-number }}
+      issue-number: ${{ inputs['issue-number'] }}
       repo: ${{ inputs.repo }}
     secrets:
       AC_AUTOMATION_PAT: ${{ secrets.AC_AUTOMATION_PAT }}

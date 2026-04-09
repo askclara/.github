@@ -27,7 +27,7 @@ jobs:
   remove-blocking-links:
     runs-on: ubuntu-latest
     env:
-      INPUT_ISSUE_NUMBER: ${{ inputs.issue-number }}
+      INPUT_ISSUE_NUMBER: ${{ inputs['issue-number'] }}
       INPUT_REPO: ${{ inputs.repo }}
       GH_TOKEN: ${{ secrets.AC_AUTOMATION_PAT }}
     steps:
