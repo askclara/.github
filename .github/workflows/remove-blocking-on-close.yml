@@ -36,9 +36,6 @@ on:
 
 jobs:
   remove-blocking-links:
-    permissions:
-      contents: read
-      issues: write
     uses: askclara/.github/.github/workflows/remove-blocking-on-close-action.yml@main
     with:
       issue-number: ${{ inputs.issue-number }}
