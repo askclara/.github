@@ -26,9 +26,6 @@ on:
 jobs:
   remove-blocking-links:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
     env:
       INPUT_ISSUE_NUMBER: ${{ inputs.issue-number }}
       INPUT_REPO: ${{ inputs.repo }}
